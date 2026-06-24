@@ -42,6 +42,9 @@ func spawn_sprite_fx(world_position: Vector2, texture: Texture2D, size: Vector2,
 
 func spawn_explosion(world_position: Vector2, radius: float, damage: float, stun: float, tags = {}, apply_damage = true) -> void:
 	explosions.append({"position": world_position, "radius": radius, "life": 0.38, "max_life": 0.38})
+	var explosion_source = str(tags.get("source", ""))
+	if has_node("/root/AudioManager") and (explosion_source == "barrel" or explosion_source.find("bomber") != -1):
+		get_node("/root/AudioManager").play_bomb()
 	shake(0.18, 7.0)
 	if main != null and apply_damage:
 		main.apply_explosion_damage(world_position, radius, damage, stun, tags)

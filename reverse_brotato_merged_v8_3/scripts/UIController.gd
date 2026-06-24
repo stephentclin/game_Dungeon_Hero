@@ -363,6 +363,8 @@ func _make_texture_button(normal_texture, hover_texture, pressed_texture, disabl
 	button.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	button.focus_mode = Control.FOCUS_NONE
 	button.mouse_filter = Control.MOUSE_FILTER_STOP
+	if has_node("/root/AudioManager"):
+		button.pressed.connect(Callable(get_node("/root/AudioManager"), "play_select"))
 	return button
 
 func _add_button_label(button, label_text, font_size) -> void:
@@ -481,12 +483,14 @@ func _update_selected_panel() -> void:
 	var level = main.monster_level(id)
 	selected_label.text = "%s\n%s\n%s\n%s" % [data.display_name, _t("生命 %.0f  攻击 %.1f  攻速 %.2f", "HP %.0f  ATK %.1f  SPD %.2f") % [data.hp_with_level(), data.attack_with_level(), data.attack_speed], _t("射程 %.0f", "Range %.0f") % data.attack_range, _ability_text(data.ability)]
 	var level_cap = main.hero_level()
-	unlock_button.disabled = unlocked or int(main.save_data["gold"]) < data.unlock_cost
-	upgrade_button.disabled = not unlocked or level >= level_cap or int(main.save_data["skill_points"]) < main.balance.upgrade_cost(level)
+	# Keep resource-short buttons clickable so Main can play error_sound.ogg and show a reason.
+	unlock_button.disabled = unlocked
+	upgrade_button.disabled = not unlocked or level >= level_cap
 	_set_button_text(unlock_button, _t("解锁：%d 金币", "UNLOCK: %d GOLD") % data.unlock_cost)
 	_set_button_text(upgrade_button, _t("升级：%d 技能点（上限 %d）", "UPGRADE: %d SKILL (MAX %d)") % [main.balance.upgrade_cost(level), level_cap])
 	_set_button_text(convert_button, _t("25 金币 → 1 技能点", "25 GOLD → 1 SKILL"))
-	convert_button.disabled = int(main.save_data["gold"]) < 25
+	# Keep clickable when gold is insufficient so error_sound.ogg can play.
+	convert_button.disabled = false
 
 func _ability_text(ability) -> String:
 	match str(ability):

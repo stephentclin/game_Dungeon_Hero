@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://b2x1s2u30rlge"
-path="res://.godot/imported/warrior_idle.png-6a24b0a0f8cea5c224f9ee995335f3c4.ctex"
+uid="uid://bfaywjewss7am"
+path="res://.godot/imported/red_disabled.png-44b7d144c3a490be6e4892261dd46b45.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/monster_forms/warrior/warrior_idle.png"
-dest_files=["res://.godot/imported/warrior_idle.png-6a24b0a0f8cea5c224f9ee995335f3c4.ctex"]
+source_file="res://assets/ui/buttons/red_disabled.png"
+dest_files=["res://.godot/imported/red_disabled.png-44b7d144c3a490be6e4892261dd46b45.ctex"]
 
 [params]
 

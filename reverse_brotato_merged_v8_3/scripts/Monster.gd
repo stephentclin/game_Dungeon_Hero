@@ -270,6 +270,8 @@ func take_damage(amount: float, source = null, critical = false) -> void:
 		return
 	last_damage_source = source
 	hp -= amount
+	if has_node("/root/AudioManager"):
+		get_node("/root/AudioManager").play_punch()
 	hit_pose_time = HIT_POSE_DURATION
 	if main != null:
 		main.combat_system.spawn_floating_text(global_position + Vector2(-12, -26), "-%d" % int(amount), Color(1.0, 0.86, 0.48), critical)

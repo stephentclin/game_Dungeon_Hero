@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://q26magn4wf6s"
-path="res://.godot/imported/bomber_walk_1.png-97ea531e5ea2c4496daf10d0b6ba566e.ctex"
+uid="uid://crvf77bdj18hw"
+path="res://.godot/imported/arrow_left_pressed.png-49446a37b84dd55741cb887a468ed9f6.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/monster_forms/bomber/bomber_walk_1.png"
-dest_files=["res://.godot/imported/bomber_walk_1.png-97ea531e5ea2c4496daf10d0b6ba566e.ctex"]
+source_file="res://assets/ui/icons/arrow_left_pressed.png"
+dest_files=["res://.godot/imported/arrow_left_pressed.png-49446a37b84dd55741cb887a468ed9f6.ctex"]
 
 [params]
 

@@ -151,6 +151,8 @@ func start_prepare() -> void:
 	spawner.despawn_all()
 	combat_system.clear_runtime_fx()
 	current_hero_stats = wave_director.build_hero_stats(wave)
+	if wave > 1 and has_node("/root/AudioManager"):
+		get_node("/root/AudioManager").play_hero_upgrade()
 	hero.setup(current_hero_stats, Vector2(492, 284), self)
 	hero.deactivate()
 	_reroll_interactives_for_wave()
@@ -178,18 +180,26 @@ func request_place_monster(monster_id: String, slot: Vector2) -> void:
 		return
 	if not is_monster_unlocked(monster_id):
 		ui.show_event("该兵种还没有解锁。", true)
+		if has_node("/root/AudioManager"):
+			get_node("/root/AudioManager").play_error()
 		return
 	if is_tutorial_wave() and monster_id != "warrior":
 		ui.show_event("第一波先用战士练习部署，胜利后会开放其他已解锁兵种。", true)
+		if has_node("/root/AudioManager"):
+			get_node("/root/AudioManager").play_error()
 		return
 	if not placement.can_place_at(slot):
 		ui.show_event(placement.block_reason(slot), true)
+		if has_node("/root/AudioManager"):
+			get_node("/root/AudioManager").play_error()
 		return
 	var data = monster_catalog[monster_id]
 	var cost = data.command_cost
 	var free = _is_free_deploy(monster_id)
 	if not free and command_points < cost:
 		ui.show_event("指挥点不足，需要 %d。 " % cost, true)
+		if has_node("/root/AudioManager"):
+			get_node("/root/AudioManager").play_error()
 		return
 	if not free:
 		command_points -= cost
@@ -198,6 +208,8 @@ func request_place_monster(monster_id: String, slot: Vector2) -> void:
 	if commander != null and commander.has_method("trigger_summon_cast"):
 		commander.trigger_summon_cast()
 	var monster = spawner.spawn(data, monster_level(monster_id), slot)
+	if has_node("/root/AudioManager"):
+		get_node("/root/AudioManager").play_monster_appear()
 	if hero.armor <= 0.0:
 		monster.apply_berserk()
 	ui.show_event("部署：%s" % data.display_name)
@@ -219,6 +231,8 @@ func unlock_selected_monster() -> void:
 	var data = monster_catalog[id]
 	if int(save_data["gold"]) < data.unlock_cost:
 		ui.show_event("金币不足，无法解锁。", true)
+		if has_node("/root/AudioManager"):
+			get_node("/root/AudioManager").play_error()
 		return
 	save_data["gold"] = int(save_data["gold"]) - data.unlock_cost
 	save_data["unlocked"].append(id)
@@ -233,15 +247,21 @@ func upgrade_selected_monster() -> void:
 	var level = monster_level(id)
 	if level >= hero_level():
 		ui.show_event("兵种等级不能超过当前勇者等级（%d）。" % hero_level(), true)
+		if has_node("/root/AudioManager"):
+			get_node("/root/AudioManager").play_error()
 		return
 	var cost = balance.upgrade_cost(level)
 	if int(save_data["skill_points"]) < cost:
 		ui.show_event("技能点不足，无法升级。", true)
+		if has_node("/root/AudioManager"):
+			get_node("/root/AudioManager").play_error()
 		return
 	save_data["skill_points"] = int(save_data["skill_points"]) - cost
 	save_data["upgrades"][id] = level + 1
 	save_system.save_progress(save_data)
 	ui.refresh_monster_list()
+	if has_node("/root/AudioManager"):
+		get_node("/root/AudioManager").play_hero_upgrade()
 	ui.show_event("永久升级：%s Lv.%d" % [monster_catalog[id].display_name, level + 1])
 
 func choose_temp_boon(boon_id: String) -> void:
@@ -650,6 +670,8 @@ func convert_gold_to_skill_points() -> void:
 	var points = int(gold / rate)
 	if points <= 0:
 		ui.show_event("金币不足：%d 金币可转换 1 技能点。" % rate, true)
+		if has_node("/root/AudioManager"):
+			get_node("/root/AudioManager").play_error()
 		return
 	save_data["gold"] = gold - points * rate
 	save_data["skill_points"] = int(save_data["skill_points"]) + points

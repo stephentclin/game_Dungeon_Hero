@@ -149,6 +149,7 @@ func _make_button(normal: Texture2D, hover: Texture2D, pressed: Texture2D, disab
 	button.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	button.focus_mode = Control.FOCUS_NONE
 	button.mouse_filter = Control.MOUSE_FILTER_STOP
+	button.pressed.connect(Callable(AudioManager, "play_select"))
 	return button
 
 func _add_button_label(button: TextureButton, label_text: String, font_size: int) -> void:

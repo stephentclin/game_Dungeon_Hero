@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://bdeyj4l8imvbs"
-path="res://.godot/imported/warrior_attack.png-8afe4c1437c0efe1e20c3568d73a45e2.ctex"
+uid="uid://crxp0peo1t40a"
+path="res://.godot/imported/gear_pressed.png-8b37d6f45a0b69ba62267150968902b4.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/monster_forms/warrior/warrior_attack.png"
-dest_files=["res://.godot/imported/warrior_attack.png-8afe4c1437c0efe1e20c3568d73a45e2.ctex"]
+source_file="res://assets/ui/icons/gear_pressed.png"
+dest_files=["res://.godot/imported/gear_pressed.png-8b37d6f45a0b69ba62267150968902b4.ctex"]
 
 [params]
 
