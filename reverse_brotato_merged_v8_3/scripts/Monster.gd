@@ -230,6 +230,15 @@ func apply_knockback(from_position: Vector2, strength: float) -> void:
 	knockback_velocity += direction.normalized() * strength * resistance
 	knockback_velocity = knockback_velocity.limit_length(280.0)
 
+func apply_map_impulse(direction: Vector2, strength: float) -> void:
+	if not active or direction.length_squared() <= 0.001:
+		return
+	var resistance = 1.0
+	if data != null:
+		resistance = max(0.18, float(data.knockback_resistance))
+	knockback_velocity += direction.normalized() * strength * resistance
+	knockback_velocity = knockback_velocity.limit_length(320.0)
+
 func on_wall_contact(inward_direction: Vector2) -> void:
 	if not active or data == null or wall_hit_cooldown > 0.0:
 		return
@@ -317,6 +326,7 @@ func current_attack() -> float:
 	var value = data.attack_with_level()
 	if main != null:
 		value *= main.monster_damage_multiplier(data)
+		value *= main.guardian_damage_multiplier_for(self)
 	if berserk:
 		value *= main.berserk_damage_multiplier()
 	# Slimes do not suffer from either pool. They metabolise it into a visible damage bonus.
@@ -333,8 +343,13 @@ func current_attack_speed() -> float:
 	var value = data.attack_speed * (1.0 + float(data.level) * 0.04)
 	if main != null:
 		value *= main.monster_attack_speed_multiplier(data)
+		value *= main.guardian_attack_speed_multiplier_for(self)
 	if berserk:
 		value *= main.berserk_attack_speed_multiplier()
+	if main != null:
+		var effects = main.get_environment_effects_at(global_position)
+		if bool(effects.get("light", false)):
+			value *= 1.30
 	if data != null and data.id == "ogre":
 		for meal in inherited_meals:
 			value = max(value, float(meal.get("attack_speed", 0.0)))
@@ -342,6 +357,9 @@ func current_attack_speed() -> float:
 
 func current_move_speed() -> float:
 	var value = data.move_speed * (1.0 + float(data.level) * 0.03)
+	if main != null:
+		value *= main.monster_move_speed_multiplier(data)
+		value *= main.guardian_move_speed_multiplier_for(self)
 	if berserk and main != null:
 		value *= main.berserk_move_speed_multiplier()
 	if main != null:
@@ -474,6 +492,8 @@ func _tick_environment(delta: float) -> void:
 	elif bool(effects.get("poison", false)):
 		# The toxic pool damages player units too, so dragging the fight through it is a decision.
 		take_damage(float(effects.get("poison_dps", 6.0)), null)
+	if bool(effects.get("light", false)) and not _is_pool_immune():
+		take_damage(float(effects.get("light_burn", 2.0)), null)
 
 func _begin_attack() -> void:
 	if data.id == "warrior":
@@ -716,6 +736,9 @@ func _draw() -> void:
 	if pool_empowered:
 		draw_arc(Vector2.ZERO, radius + 13.0, 0.0, TAU, 28, Color(0.30, 1.0, 0.74, 0.90), 2.0)
 		draw_string(ThemeDB.fallback_font, Vector2(-22, 47), "沼泽强化 +10", HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color("#baffce"))
+	if main != null and main.guardian_inspiration_for(self):
+		draw_arc(Vector2.ZERO, radius + 12.0, 0.0, TAU, 28, Color(0.52, 1.0, 0.66, 0.96), 2.2)
+		draw_string(ThemeDB.fallback_font, Vector2(-16, 60), "鼓舞", HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color("#caffb7"))
 
 	# Health bar and compact unit name.
 	var ratio = clamp(hp / max_hp, 0.0, 1.0)

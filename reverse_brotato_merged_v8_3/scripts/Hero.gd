@@ -40,6 +40,10 @@ var wall_hit_cooldown = 0.0
 var life_regen_timer = 0.0
 var eternal_countdown = -1.0
 var eternal_used = false
+var map_impulse_velocity = Vector2.ZERO
+var survival_target = Vector2.ZERO
+var survival_retarget_timer = 0.0
+var survival_turn = 1.0
 
 func setup(hero_stats: Dictionary, world_position: Vector2, owner: Node) -> void:
 	stats = hero_stats.duplicate(true)
@@ -72,6 +76,10 @@ func setup(hero_stats: Dictionary, world_position: Vector2, owner: Node) -> void
 	life_regen_timer = 0.0
 	eternal_countdown = -1.0
 	eternal_used = false
+	map_impulse_velocity = Vector2.ZERO
+	survival_target = Vector2.ZERO
+	survival_retarget_timer = 0.0
+	survival_turn = -1.0 if randf() < 0.5 else 1.0
 	set_life_form(lives_remaining)
 	active = true
 	visible = true
@@ -88,6 +96,7 @@ func activate() -> void:
 func deactivate() -> void:
 	active = false
 	velocity = Vector2.ZERO
+	map_impulse_velocity = Vector2.ZERO
 	if collision_shape != null:
 		collision_shape.set_deferred("disabled", true)
 	set_physics_process(false)
@@ -117,6 +126,12 @@ func armor_ratio() -> float:
 func set_life_form(lives_remaining: int) -> void:
 	current_form_lives = clampi(lives_remaining, 1, 5)
 	queue_redraw()
+
+func apply_map_impulse(direction: Vector2, strength: float) -> void:
+	if not active or direction.length_squared() <= 0.001:
+		return
+	map_impulse_velocity += direction.normalized() * strength
+	map_impulse_velocity = map_impulse_velocity.limit_length(320.0)
 
 func on_wall_contact(inward_direction: Vector2) -> void:
 	if not active or wall_hit_cooldown > 0.0:
@@ -232,6 +247,7 @@ func _physics_process(delta: float) -> void:
 	if not active or main == null or main.phase != "battle":
 		return
 	wall_hit_cooldown = max(0.0, wall_hit_cooldown - delta)
+	map_impulse_velocity = map_impulse_velocity.move_toward(Vector2.ZERO, 640.0 * delta)
 	_tick_environment(delta)
 	_tick_statuses(delta)
 	_tick_seals(delta)
@@ -241,7 +257,7 @@ func _physics_process(delta: float) -> void:
 		return
 	var crowd_push = main.get_hero_crowd_push(global_position)
 	if statuses.has("stun"):
-		velocity = crowd_push
+		velocity = crowd_push + map_impulse_velocity
 		move_and_slide()
 		main.resolve_wall_contact(self)
 		_update_visual_fx(delta, velocity, 0.0)
@@ -249,29 +265,76 @@ func _physics_process(delta: float) -> void:
 		return
 	attack_timer = max(0.0, attack_timer - delta)
 	var target = main.get_hero_target()
-	if target == null:
-		velocity = crowd_push
-		move_and_slide()
-		main.resolve_wall_contact(self)
-		_update_visual_fx(delta, velocity, 0.0)
-		queue_redraw()
-		return
-	var target_position: Vector2 = target.global_position
-	var distance = global_position.distance_to(target_position)
-	var attack_range = float(stats.get("attack_range", 52.0))
-	var movement = Vector2.ZERO
-	if distance <= attack_range:
-		if attack_timer <= 0.0:
-			_attack(target)
-			attack_timer = 1.0 / max(0.1, float(stats.get("attack_speed", 0.8)) * _status_attack_speed_multiplier())
-	else:
-		var desired = (target_position - global_position).normalized()
-		movement = desired * _move_speed()
-	velocity = movement + crowd_push
+	var facing_hint = survival_target.x - global_position.x
+	var movement = _survival_movement(delta)
+	if target != null and is_instance_valid(target):
+		var distance = global_position.distance_to(target.global_position)
+		var attack_range = float(stats.get("attack_range", 52.0))
+		facing_hint = target.global_position.x - global_position.x
+		if distance <= attack_range:
+			if attack_timer <= 0.0:
+				_attack(target)
+				attack_timer = 1.0 / max(0.1, float(stats.get("attack_speed", 0.8)) * _status_attack_speed_multiplier())
+			movement *= 0.30
+	velocity = movement + crowd_push + map_impulse_velocity
 	move_and_slide()
 	main.resolve_wall_contact(self)
-	_update_visual_fx(delta, velocity, target_position.x - global_position.x)
+	_update_visual_fx(delta, velocity, facing_hint)
 	queue_redraw()
+
+func _survival_movement(delta: float) -> Vector2:
+	survival_retarget_timer -= delta
+	if survival_target == Vector2.ZERO or survival_retarget_timer <= 0.0 or global_position.distance_to(survival_target) < 34.0:
+		_choose_survival_target()
+	var desired = survival_target - global_position
+	if desired.length_squared() <= 0.001:
+		desired = Vector2.RIGHT
+	desired = desired.normalized()
+	var away = Vector2.ZERO
+	var closest_distance = INF
+	for monster in main.get_active_monsters():
+		var offset = global_position - monster.global_position
+		var distance = offset.length()
+		closest_distance = min(closest_distance, distance)
+		if distance > 0.01 and distance < 210.0:
+			away += offset.normalized() * ((210.0 - distance) / 210.0)
+	if away.length_squared() > 0.001:
+		var strafe = away.normalized().rotated(survival_turn * 0.72)
+		desired = (desired * 0.40 + away.normalized() * 1.20 + strafe * 0.58).normalized()
+		if closest_distance < 92.0:
+			survival_retarget_timer = min(survival_retarget_timer, 0.35)
+	var arena_rect = main.ARENA_BOUNDS.grow(-58.0)
+	var edge_push = Vector2.ZERO
+	if global_position.x < arena_rect.position.x:
+		edge_push.x += 1.0
+	elif global_position.x > arena_rect.end.x:
+		edge_push.x -= 1.0
+	if global_position.y < arena_rect.position.y:
+		edge_push.y += 1.0
+	elif global_position.y > arena_rect.end.y:
+		edge_push.y -= 1.0
+	if edge_push.length_squared() > 0.001:
+		desired = (desired * 0.45 + edge_push.normalized() * 1.35).normalized()
+	return desired * _move_speed()
+
+func _choose_survival_target() -> void:
+	var safe_rect = main.ARENA_BOUNDS.grow(-82.0)
+	var best_point = global_position
+	var best_score = -INF
+	for _i in range(8):
+		var candidate = Vector2(randf_range(safe_rect.position.x, safe_rect.end.x), randf_range(safe_rect.position.y, safe_rect.end.y))
+		var nearest = 260.0
+		for monster in main.get_active_monsters():
+			nearest = min(nearest, candidate.distance_to(monster.global_position))
+		var travel = global_position.distance_to(candidate)
+		var score = nearest * 1.45 + min(travel, 240.0) * 0.18
+		if score > best_score:
+			best_score = score
+			best_point = candidate
+	survival_target = best_point
+	survival_retarget_timer = randf_range(1.3, 2.6)
+	if randf() < 0.52:
+		survival_turn *= -1.0
 
 func _tick_environment(delta: float) -> void:
 	var effects = main.get_environment_effects_at(global_position)
@@ -282,6 +345,8 @@ func _tick_environment(delta: float) -> void:
 	environment_tick -= 1.0
 	if in_poison_pool:
 		take_damage(float(effects.get("poison_dps", 6.0)), null, {"source": "poison_pool", "dot": true, "always_hit": true})
+	if bool(effects.get("light", false)):
+		take_damage(float(effects.get("light_burn", 2.0)), null, {"source": "sun_beam", "dot": true, "always_hit": true})
 
 func _attack(target: Node) -> void:
 	attack_pose_time = ATTACK_POSE_DURATION
@@ -354,7 +419,12 @@ func _move_speed() -> float:
 	return value
 
 func _status_attack_speed_multiplier() -> float:
-	return 1.35 if statuses.has("momentum") else 1.0
+	var value = 1.35 if statuses.has("momentum") else 1.0
+	if main != null:
+		var effects = main.get_environment_effects_at(global_position)
+		if bool(effects.get("light", false)):
+			value *= 1.25
+	return value
 
 func _update_visual_fx(delta: float, current_velocity: Vector2, facing_hint_x: float) -> void:
 	visual_time += delta

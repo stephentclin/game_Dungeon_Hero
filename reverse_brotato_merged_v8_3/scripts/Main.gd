@@ -14,6 +14,7 @@ const CombatSystemScript = preload("res://scripts/CombatSystem.gd")
 const PlacementSystemScript = preload("res://scripts/PlacementSystem.gd")
 const UIControllerScript = preload("res://scripts/UIController.gd")
 const InteractiveObjectScript = preload("res://scripts/InteractiveObject.gd")
+const MapDirectorScript = preload("res://scripts/MapDirector.gd")
 
 var balance = BalanceConfigScript.new()
 var save_system = SaveSystemScript.new()
@@ -23,6 +24,7 @@ var red_button_system = RedButtonSystemScript.new()
 var combat_system = CombatSystemScript.new()
 var placement = PlacementSystemScript.new()
 var ui = UIControllerScript.new()
+var map_director = MapDirectorScript.new()
 
 var world_root: Node2D
 var interactive_root: Node2D
@@ -57,6 +59,14 @@ var pending_boons: Array[Dictionary] = []
 var current_hero_stats = {}
 var duel = {}
 var waves_defeated = 0
+var map_index = 0
+var room_time_remaining = 90.0
+var hero_inventory: Array = []
+var hero_escape_count = 0
+var last_reclaimed_loot: Array = []
+var pending_choice_kind = ""
+var pending_transition_reason = ""
+const FINAL_ROOM_INDEX = 4
 
 func _ready() -> void:
 	randomize()
@@ -72,7 +82,8 @@ func current_language() -> String:
 	return str(save_data.get("settings", {}).get("language", "zh"))
 
 func hero_level() -> int:
-	return max(1, wave)
+	# The hero levels when he successfully writes a chapter and escapes to the next room.
+	return max(1, hero_escape_count + 1)
 
 func hero_seal_count() -> int:
 	var lost_lives = hero_lives_total - hero_lives_remaining
@@ -84,6 +95,17 @@ func hero_seal_names() -> Array:
 	for index in range(hero_seal_count()):
 		result.append(names[index])
 	return result
+
+func newly_activated_seal_name() -> String:
+	var names = ["虚无之躯", "元素屏障", "能量限界", "生命圣泉", "轮回圣印"]
+	var index = clampi(hero_seal_count() - 1, 0, names.size() - 1)
+	return names[index]
+
+func is_final_room() -> bool:
+	return map_index >= FINAL_ROOM_INDEX
+
+func guardian_tower_active() -> bool:
+	return is_final_room() and commander != null and commander.visible
 
 func should_show_deploy_prompt() -> bool:
 	return is_tutorial_wave() and not bool(save_data.get("settings", {}).get("deploy_tutorial_seen", false))
@@ -129,6 +151,12 @@ func _unhandled_input(event: InputEvent) -> void:
 func start_new_run() -> void:
 	wave = 1
 	waves_defeated = 0
+	map_index = 0
+	hero_escape_count = 0
+	hero_inventory.clear()
+	last_reclaimed_loot.clear()
+	pending_choice_kind = ""
+	pending_transition_reason = ""
 	hero_lives_total = clampi(int(save_data.get("settings", {}).get("hero_lives", 5)), 1, 5)
 	hero_lives_remaining = hero_lives_total
 	active_boons.clear()
@@ -144,13 +172,20 @@ func start_new_run() -> void:
 
 func start_prepare() -> void:
 	phase = "prepare"
+	wave = map_index + 1
 	battle_time = 0.0
+	room_time_remaining = 90.0
 	time_event_countdown = balance.time_event_interval
-	max_command_points = balance.command_points_base + wave * balance.command_points_per_wave
-	command_points = max_command_points
+	# Population is deliberately fixed for now. Room victories improve the build via item choices, not more slots.
+	max_command_points = 0.0
+	command_points = 0.0
 	spawner.despawn_all()
 	combat_system.clear_runtime_fx()
-	current_hero_stats = wave_director.build_hero_stats(wave)
+	map_director.start_room(map_index)
+	if commander != null and commander.has_method("set_guardian_mode"):
+		commander.set_guardian_mode(is_final_room())
+	current_hero_stats = wave_director.build_hero_stats(hero_level())
+	_apply_hero_escape_upgrades(current_hero_stats)
 	hero.setup(current_hero_stats, Vector2(492, 284), self)
 	hero.deactivate()
 	_reroll_interactives_for_wave()
@@ -159,11 +194,12 @@ func start_prepare() -> void:
 	placement.enabled = true
 	ui.show_prepare(current_hero_stats)
 	ui.refresh_monster_list()
-	ui.show_event("勇者封印：%s" % "、".join(hero_seal_names()), true)
-	if is_tutorial_wave():
+	if is_final_room():
+		ui.show_event("最终房间：守卫塔已上线。范围内怪物获得【鼓舞】。", true)
+	elif is_tutorial_wave():
 		ui.show_event("第一波训练：点击绿色部署区放下战士，再开始战斗。")
 	else:
-		ui.show_event("准备阶段：点击绿色部署区部署怪物，勇者红圈内禁止部署。")
+		ui.show_event("剧本席位 %d/%d：怪物死亡会立刻返还席位，可立即补位。" % [population_used(), population_capacity()])
 
 func begin_battle() -> void:
 	if phase != "prepare":
@@ -186,21 +222,16 @@ func request_place_monster(monster_id: String, slot: Vector2) -> void:
 		ui.show_event(placement.block_reason(slot), true)
 		return
 	var data = monster_catalog[monster_id]
-	var cost = data.command_cost
-	var free = _is_free_deploy(monster_id)
-	if not free and command_points < cost:
-		ui.show_event("指挥点不足，需要 %d。 " % cost, true)
+	var cost = int(data.population_cost)
+	if population_used() + cost > population_capacity():
+		ui.show_event("剧本席位不足：需要 %d，剩余 %d。" % [cost, population_free()], true)
 		return
-	if not free:
-		command_points -= cost
-	else:
-		_mark_free_deploy_used(monster_id)
 	if commander != null and commander.has_method("trigger_summon_cast"):
 		commander.trigger_summon_cast()
 	var monster = spawner.spawn(data, monster_level(monster_id), slot)
 	if hero.armor <= 0.0:
 		monster.apply_berserk()
-	ui.show_event("部署：%s" % data.display_name)
+	ui.show_event("写入战场：%s（席位 %d）" % [data.display_name, cost])
 
 func select_monster(monster_id: String) -> void:
 	if not monster_catalog.has(monster_id):
@@ -247,22 +278,31 @@ func upgrade_selected_monster() -> void:
 func choose_temp_boon(boon_id: String) -> void:
 	if boon_id != "":
 		active_boons.append(boon_id)
-		if boon_id == "first_free":
-			first_free_used.clear()
-		ui.show_event("获得临时强化：%s" % _boon_name(boon_id))
-	wave += 1
-	start_prepare()
+		ui.show_event("获得道具：%s" % _boon_name(boon_id), true)
+	var reason = pending_transition_reason
+	pending_choice_kind = ""
+	pending_transition_reason = ""
+	if reason == "hero_defeated":
+		if is_final_room():
+			# In the last room, another life returns to the same final arena. The tower remains active.
+			start_prepare()
+		else:
+			map_index += 1
+			start_prepare()
+	elif reason == "hero_cleared_room":
+		map_index += 1
+		start_prepare()
+	else:
+		start_prepare()
 
 func force_red_button() -> void:
 	if phase != "battle":
 		return
-	if rage_system.rage < 100.0:
-		ui.show_event("红按钮还未充能完成。", true)
+	if not map_director.can_rewrite_scene():
+		ui.show_event("剧本改写仍在冷却：开战 8 秒后才能使用。", true)
 		return
-	if red_button_system.safe_triggers_left() <= 0:
-		ui.show_event("本局的红按钮已使用。怒气会继续显示，但不会再触发失败。", true)
-		return
-	_on_rage_full()
+	if map_director.rewrite_scene():
+		ui.show_event("剧本已被反写。勇者以为他在闯关，其实是你在改关。", true)
 
 func choose_red_button(effect_id: String) -> void:
 	var effect = _red_effect_by_id(effect_id)
@@ -340,6 +380,8 @@ func phase_name() -> String:
 			return "失败"
 		"victory":
 			return "胜利"
+		"hero_escape":
+			return "勇者升级"
 		_:
 			return phase
 
@@ -359,7 +401,7 @@ func monster_level(id: String) -> int:
 	return int(save_data.get("upgrades", {}).get(id, 0))
 
 func command_regen_multiplier() -> float:
-	return 1.0 + (rage_system.rage / 100.0) * balance.rage_command_regen_bonus_max
+	return 0.0
 
 func get_active_monsters() -> Array:
 	return spawner.get_active_monsters()
@@ -368,21 +410,35 @@ func monster_attack_speed_multiplier(data) -> float:
 	var value = 1.0
 	if active_boons.has("frenzy"):
 		value *= 1.15
+	if active_boons.has("power_swarm"):
+		value *= 1.30
 	return value
 
 func monster_damage_multiplier(data) -> float:
-	return 1.0
+	var value = 1.0
+	if active_boons.has("power_attack"):
+		value *= 1.30
+	return value
 
 func monster_hp_multiplier(data) -> float:
+	var value = 1.0
 	if active_boons.has("melee_hp") and (data.tags.has("melee") or data.tags.has("tank")):
-		return 1.20
-	return 1.0
+		value *= 1.20
+	if active_boons.has("power_fortify"):
+		value *= 1.35
+	return value
+
+func monster_move_speed_multiplier(data) -> float:
+	return 1.12 if active_boons.has("swift_cast") else 1.0
 
 func ranged_crit_chance() -> float:
 	return 0.18 if active_boons.has("ranged_crit") else 0.0
 
+func poison_damage_multiplier() -> float:
+	return 1.50 if active_boons.has("poison_amp") else 1.0
+
 func poison_rage_bonus() -> float:
-	return 2.5 if active_boons.has("poison_calm") else 0.0
+	return 0.0
 
 func berserk_attack_speed_multiplier() -> float:
 	return 1.42 if active_boons.has("better_berserk") else 1.25
@@ -393,20 +449,39 @@ func berserk_move_speed_multiplier() -> float:
 func berserk_damage_multiplier() -> float:
 	return 1.12 if active_boons.has("better_berserk") else 1.0
 
+func guardian_inspiration_for(monster) -> bool:
+	# Final-room guardian tower broadcasts a map-wide inspiration effect.
+	return guardian_tower_active() and monster != null
+
+func guardian_damage_multiplier_for(monster) -> float:
+	return 1.15 if guardian_inspiration_for(monster) else 1.0
+
+func guardian_attack_speed_multiplier_for(monster) -> float:
+	return 1.15 if guardian_inspiration_for(monster) else 1.0
+
+func guardian_move_speed_multiplier_for(monster) -> float:
+	return 1.10 if guardian_inspiration_for(monster) else 1.0
+
 func apply_damage_to_hero(amount: float, source = null, tags = {}) -> float:
 	if phase != "battle" and phase != "duel":
 		return 0.0
-	var ability = str(tags.get("ability", ""))
-	# Status effects are applied before the damage gate. This makes poison a valid answer to the Element seal.
+	var final_tags = tags.duplicate(true)
+	var final_amount = amount
+	if source != null and is_instance_valid(source) and map_director.is_in_light(source.global_position):
+		final_tags["always_hit"] = true
+		final_tags["light_empowered"] = true
+		final_amount *= 1.22
+	if bool(final_tags.get("light_empowered", false)):
+		hero.apply_status("burn", 1.5, 1.0)
+	var ability = str(final_tags.get("ability", ""))
+	# Apply status before the Element seal checks damage.
 	if ability == "poison" or ability == "ritual_heal":
-		hero.apply_status("poison", 5.0, 2.0)
-		rage_system.reduce(4.0 + poison_rage_bonus())
+		hero.apply_status("poison", 5.0, 2.0 * poison_damage_multiplier())
 	elif ability == "slow":
 		hero.apply_status("slow", 3.0, 0.42)
-	var dealt = hero.take_damage(amount, source, tags)
-	if bool(tags.get("critical", false)) and dealt > 0.0:
+	var dealt = hero.take_damage(final_amount, source, final_tags)
+	if bool(final_tags.get("critical", false)) and dealt > 0.0:
 		combat_system.spawn_floating_text(hero.global_position + Vector2(20, -56), "暴击", Color(1.0, 0.92, 0.22), true)
-	command_points = min(max_command_points, command_points + dealt * balance.command_point_damage_reward)
 	return dealt
 
 func apply_explosion_damage(world_position: Vector2, radius: float, damage: float, stun: float, tags = {}) -> void:
@@ -430,17 +505,18 @@ func get_hero_target() -> Node:
 	var closest_monster = null
 	var closest_distance = INF
 	for monster in get_active_monsters():
+		if not map_director.hero_can_see(monster.global_position):
+			continue
 		var distance = hero.global_position.distance_to(monster.global_position)
 		if distance < closest_distance:
 			closest_distance = distance
 			closest_monster = monster
-	var desired = commander.global_position if closest_monster == null else closest_monster.global_position
-	var obstacle = get_blocking_obstacle_toward(hero.global_position, desired)
+	if closest_monster == null:
+		return null
+	var obstacle = get_blocking_obstacle_toward(hero.global_position, closest_monster.global_position)
 	if obstacle != null:
 		return obstacle
-	if closest_monster != null:
-		return closest_monster
-	return commander
+	return closest_monster
 
 func get_blocking_obstacle_toward(from_position: Vector2, to_position: Vector2):
 	var segment = to_position - from_position
@@ -466,7 +542,7 @@ func get_active_interactives() -> Array:
 	return result
 
 func get_environment_effects_at(point: Vector2) -> Dictionary:
-	var effects = {"slow": false, "poison": false, "poison_dps": 6.0}
+	var effects = {"slow": false, "poison": false, "poison_dps": 6.0, "light": false, "light_burn": 0.0}
 	for obj in get_active_interactives():
 		if obj.global_position.distance_to(point) > obj.radius:
 			continue
@@ -474,6 +550,14 @@ func get_environment_effects_at(point: Vector2) -> Dictionary:
 			effects["slow"] = true
 		elif obj.kind == "poison_pool":
 			effects["poison"] = true
+			effects["poison_dps"] = max(float(effects["poison_dps"]), 6.0)
+	var room_effects = map_director.get_environment_effects(point)
+	if bool(room_effects.get("poison", false)):
+		effects["poison"] = true
+		effects["poison_dps"] = max(float(effects["poison_dps"]), float(room_effects.get("poison_dps", 0.0)))
+	if bool(room_effects.get("light", false)):
+		effects["light"] = true
+		effects["light_burn"] = float(room_effects.get("light_burn", 0.0))
 	return effects
 
 func is_point_in_slime(point: Vector2) -> bool:
@@ -511,6 +595,70 @@ func get_hero_crowd_push(hero_position: Vector2) -> Vector2:
 	var strength = clamp(34.0 + (total_weight - 3.0) * 48.0, 34.0, 210.0)
 	return direction.normalized() * strength
 
+func population_capacity() -> int:
+	# Fixed in this version: progression is item-choice driven, not population growth.
+	return 8
+
+func population_used() -> int:
+	var used = 0
+	for monster in get_active_monsters():
+		if monster.data != null:
+			used += int(monster.data.population_cost)
+	return used
+
+func population_free() -> int:
+	return max(0, population_capacity() - population_used())
+
+func get_map_bodies() -> Array:
+	var bodies: Array = []
+	if hero != null and hero.active:
+		bodies.append(hero)
+	for monster in get_active_monsters():
+		bodies.append(monster)
+	return bodies
+
+func mirror_combatants() -> void:
+	var left = ARENA_BOUNDS.position.x + 12.0
+	var right = ARENA_BOUNDS.end.x - 12.0
+	if hero != null and hero.active:
+		hero.global_position.x = left + right - hero.global_position.x
+		resolve_wall_contact(hero)
+	for monster in get_active_monsters():
+		monster.global_position.x = left + right - monster.global_position.x
+		resolve_wall_contact(monster)
+	combat_system.clear_runtime_fx()
+
+func _apply_hero_escape_upgrades(stats: Dictionary) -> void:
+	var upgrades = hero_inventory.size()
+	if upgrades <= 0:
+		return
+	stats["max_hp"] = float(stats.get("max_hp", 0.0)) + upgrades * 18.0
+	stats["attack"] = float(stats.get("attack", 0.0)) + upgrades * 2.0
+	stats["move_speed"] = float(stats.get("move_speed", 0.0)) + upgrades * 3.0
+	stats["weapon_name"] = "遗物强化剑 +%d" % upgrades
+
+func _on_hero_escape() -> void:
+	if phase != "battle":
+		return
+	if is_final_room():
+		game_over("最终房间倒计时结束，勇者仍然活着。")
+		return
+	phase = "room_clear_choice"
+	hero.deactivate()
+	spawner.despawn_all()
+	var relic = map_director.current_relic(current_language())
+	hero_inventory.append(relic)
+	hero_escape_count += 1
+	pending_boons = wave_director.choose_temp_boons()
+	pending_choice_kind = "normal"
+	pending_transition_reason = "hero_cleared_room"
+	ui.show_normal_room_choice(relic, map_director.room_name(current_language()), pending_boons)
+	ui.show_event("勇者清荡了房间，带走【%s】；你获得一次普通道具选择。" % relic, true)
+
+func continue_after_hero_escape() -> void:
+	if pending_transition_reason == "hero_cleared_room":
+		choose_temp_boon("")
+
 func game_over(reason: String) -> void:
 	if phase == "game_over":
 		return
@@ -529,6 +677,8 @@ func _build_world() -> void:
 	add_child(world_root)
 	arena = ArenaScene.instantiate()
 	world_root.add_child(arena)
+	map_director.setup(self)
+	world_root.add_child(map_director)
 	interactive_root = Node2D.new()
 	world_root.add_child(interactive_root)
 	unit_root = Node2D.new()
@@ -558,25 +708,20 @@ func _connect_signals() -> void:
 
 func _process_battle(delta: float) -> void:
 	battle_time += delta
-	time_event_countdown -= delta
-	command_points = min(max_command_points, command_points + balance.command_point_regen * command_regen_multiplier() * delta)
-	var hero_near_commander = hero.global_position.distance_to(commander.global_position) < 150.0
-	rage_system.process_battle(delta, battle_time, hero_near_commander)
+	room_time_remaining = max(0.0, room_time_remaining - delta)
+	map_director.process_room(delta)
 	_process_interactive_timers(delta)
-	if time_event_countdown <= 0.0:
-		time_event_countdown = balance.time_event_interval
-		_trigger_time_event()
+	if room_time_remaining <= 0.0:
+		if is_final_room() and hero != null and hero.active:
+			game_over("最终房间倒计时结束，勇者仍然活着。")
+		else:
+			_on_hero_escape()
 
 func _on_monster_died(monster) -> void:
-	command_points = min(max_command_points, command_points + balance.command_point_monster_death_reward)
-	rage_system.add(8.5)
-	if monster.last_damage_source == hero and float(current_hero_stats.get("life_steal", 0.0)) > 0.0:
-		hero.heal(float(current_hero_stats.get("life_steal", 0.0)))
-	ui.show_event("勇者击杀了 %s，怒气上升。" % monster.data.display_name, true)
+	# Population is derived from active units, so the seat is returned immediately.
+	ui.show_event("%s退场，剧本席位已返还。" % monster.data.display_name, true)
 
 func _on_hero_armor_broken() -> void:
-	command_points = min(max_command_points, command_points + balance.command_point_armor_break_reward)
-	rage_system.reduce(22.0)
 	for monster in get_active_monsters():
 		monster.apply_berserk()
 	combat_system.shake(0.24, 9.0)
@@ -585,13 +730,14 @@ func _on_hero_armor_broken() -> void:
 func _on_hero_died() -> void:
 	if phase != "battle" and phase != "duel":
 		return
-	# A defeated hero consumes one life, then comes back stronger on the next wave.
 	hero_lives_remaining = max(0, hero_lives_remaining - 1)
+	last_reclaimed_loot = hero_inventory.duplicate()
+	hero_inventory.clear()
 	ui.update_stats()
 	if hero_lives_remaining <= 0:
 		_run_victory()
-	else:
-		_wave_victory()
+		return
+	_begin_hero_defeat_choice()
 
 func _on_rage_full() -> void:
 	if phase != "battle":
@@ -606,19 +752,31 @@ func _on_red_button_choice_required(effects: Array) -> void:
 	ui.show_red_button_options(effects)
 	ui.show_event("红按钮已触发，选择一个高风险翻盘效果。", true)
 
-func _wave_victory() -> void:
-	if phase == "reward" or phase == "victory":
+func _begin_hero_defeat_choice() -> void:
+	if phase == "hero_defeated_choice" or phase == "victory":
 		return
-	phase = "reward"
+	phase = "hero_defeated_choice"
 	waves_defeated += 1
-	rage_system.reset_to(0.0)
-	var rewards = wave_director.victory_rewards(wave)
+	spawner.despawn_all()
+	var rewards = wave_director.victory_rewards(hero_level())
+	var recovered_gold = last_reclaimed_loot.size() * 28
+	var recovered_skill = int(last_reclaimed_loot.size() / 2)
+	rewards["gold"] = int(rewards.get("gold", 0)) + recovered_gold
+	rewards["skill_points"] = int(rewards.get("skill_points", 0)) + recovered_skill
 	_grant_rewards(rewards)
-	pending_boons = wave_director.choose_temp_boons()
+	pending_boons = balance.create_power_boons()
+	pending_choice_kind = "power"
+	pending_transition_reason = "hero_defeated"
 	save_system.save_progress(save_data)
-	ui.show_reward(rewards, pending_boons)
+	ui.show_power_choice(rewards, newly_activated_seal_name(), pending_boons)
 	ui.refresh_monster_list()
-	ui.show_event("勇者倒下，但他还有 %d 条命。选择强化，准备迎接复活后的他。" % hero_lives_remaining)
+	var loot_text = ""
+	if not last_reclaimed_loot.is_empty():
+		loot_text = " 夺回遗物：%s。" % "、".join(last_reclaimed_loot)
+	ui.show_event("勇者倒下，【%s】解封。强力道具选择后进入下一间。%s" % [newly_activated_seal_name(), loot_text], true)
+
+func _wave_victory() -> void:
+	_begin_hero_defeat_choice()
 
 func _run_victory() -> void:
 	if phase == "victory":
@@ -626,7 +784,7 @@ func _run_victory() -> void:
 	phase = "victory"
 	waves_defeated += 1
 	rage_system.reset_to(0.0)
-	var final_rewards = wave_director.victory_rewards(wave)
+	var final_rewards = wave_director.victory_rewards(hero_level())
 	_grant_rewards(final_rewards)
 	spawner.despawn_all()
 	hero.deactivate()
@@ -789,9 +947,11 @@ func all_monsters_unlocked() -> bool:
 	return true
 
 func _boon_name(id: String) -> String:
-	for boon in balance.create_temp_boons():
-		if boon["id"] == id:
-			return boon["name"]
+	var pools = [balance.create_temp_boons(), balance.create_power_boons()]
+	for pool in pools:
+		for boon in pool:
+			if boon["id"] == id:
+				return boon["name"]
 	return id
 
 func _red_effect_by_id(effect_id: String):

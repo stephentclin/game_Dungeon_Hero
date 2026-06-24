@@ -7,8 +7,8 @@ const ARENA_RECT = Rect2(Vector2(38, 62), Vector2(908, 610))
 const DEPLOY_RECT = Rect2(Vector2(48, 154), Vector2(894, 420))
 const HERO_BLOCK_RADIUS = 96.0
 const TOP_UI_RECT = Rect2(Vector2(10, 10), Vector2(628, 132))
-const RIGHT_UI_RECT = Rect2(Vector2(968, 10), Vector2(300, 538))
-const ACTION_UI_RECT = Rect2(Vector2(10, 598), Vector2(936, 110))
+const RIGHT_UI_RECT = Rect2(Vector2(946, 10), Vector2(320, 700))
+const ACTION_UI_RECT = Rect2(Vector2(654, 560), Vector2(288, 150))
 const OVERLAY_RECT = Rect2(Vector2(312, 164), Vector2(560, 360))
 
 var main: Node
@@ -88,14 +88,14 @@ func _draw() -> void:
 		var data = main.monster_catalog[selected_monster_id]
 		preview_radius = float(data.attack_range)
 		preview_name = str(data.display_name)
-		preview_cost = int(data.command_cost)
+		preview_cost = int(data.population_cost)
 		# Thin range ring: this turns “where can I place?” into “where will it matter?”.
 		draw_circle(mouse, preview_radius, Color(color.r, color.g, color.b, 0.035))
 		draw_arc(mouse, preview_radius, 0.0, TAU, 48, Color(color.r, color.g, color.b, 0.30), 1.3)
 
 	draw_circle(mouse, 16.0, Color(color.r, color.g, color.b, 0.20))
 	draw_arc(mouse, 18.0, 0.0, TAU, 24, color, 2.2)
-	var preview_text = "%s · %d指挥点 · 射程%.0f" % [preview_name, preview_cost, preview_radius]
+	var preview_text = "%s · 席位%d · 射程%.0f" % [preview_name, preview_cost, preview_radius]
 	draw_string(ThemeDB.fallback_font, mouse + Vector2(-58, -26), preview_text if ok else "不能部署：%s" % block_reason(mouse), HORIZONTAL_ALIGNMENT_LEFT, -1, 12, color)
 
 	if main != null and main.is_tutorial_wave():

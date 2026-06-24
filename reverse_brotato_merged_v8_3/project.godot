@@ -14,7 +14,7 @@ compatibility/default_parent_skeleton_in_mesh_instance_3d=true
 
 [application]
 
-config/name="Goblin Commander: UI + Art Merge v8.3"
+config/name="Goblin Commander: Flip the Script v9"
 run/main_scene="res://scenes/MainMenu.tscn"
 config/features=PackedStringArray("4.7")
 

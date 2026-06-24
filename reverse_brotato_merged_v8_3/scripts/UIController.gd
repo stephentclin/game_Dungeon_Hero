@@ -55,26 +55,21 @@ func setup(game_main) -> void:
 	refresh_monster_list()
 
 func update_stats() -> void:
-	if main == null:
+	if main == null or main.hero == null:
 		return
-	if main.hero == null or main.commander == null:
-		return
-	_update_bar("hero_hp", main.hero.hp, main.hero.max_hp, _t("勇者生命", "Hero HP"))
-	_update_bar("hero_armor", main.hero.armor, main.hero.max_armor, _t("勇者护甲", "Hero Armor"))
-	_update_bar("commander", main.commander.hp, main.commander.max_hp, _t("指挥台", "Command Post"))
-	_update_bar("rage", main.rage_system.rage, 100.0, _t("怒气", "Rage"))
-	_update_bar("cp", main.command_points, main.max_command_points, _t("指挥点", "Command Points"))
-	wave_label.text = _t("波次 %d  ·  勇者等级 %d", "Wave %d  ·  Hero Lv.%d") % [main.wave, main.hero_level()]
-	resource_label.text = _t("金币 %d  ·  技能点 %d  ·  红按钮 %d", "Gold %d  ·  Skill %d  ·  Red %d") % [int(main.save_data["gold"]), int(main.save_data["skill_points"]), main.red_button_system.safe_triggers_left()]
+	_update_bar("timer", main.room_time_remaining, 90.0, _t("最终倒计时" if main.is_final_room() else "勇者章节倒计时", "FINAL TIMER" if main.is_final_room() else "Hero Chapter Timer"))
+	_update_bar("population", main.population_used(), main.population_capacity(), _t("剧本席位", "Cast Slots"))
+	wave_label.text = _t("第 %d 室 · %s · 勇者等级 %d", "Room %d · %s · Hero Lv.%d") % [main.map_index + 1, main.map_director.room_name(main.current_language()), main.hero_level()]
+	resource_label.text = _t("金币 %d · 技能点 %d · 席位 %d/%d", "Gold %d · Skill %d · Slots %d/%d") % [int(main.save_data["gold"]), int(main.save_data["skill_points"]), main.population_used(), main.population_capacity()]
 	_update_life_strip()
 	_update_seal_label()
 	_update_selected_panel()
 	_update_command_panel()
 	start_button.visible = main.phase == "prepare" and not overlay.visible
 	red_button.visible = main.phase == "battle"
-	red_button.disabled = main.phase != "battle" or main.rage_system.rage < 100.0 or main.red_button_system.safe_triggers_left() <= 0
+	red_button.disabled = main.phase != "battle" or not main.map_director.can_rewrite_scene()
 	_set_button_text(start_button, _t("开始战斗", "START BATTLE"))
-	_set_button_text(red_button, _t("红按钮", "RED BUTTON"))
+	_set_button_text(red_button, _t("改写剧本", "REWRITE SCENE"))
 	if convert_button != null:
 		convert_button.visible = main.all_monsters_unlocked()
 
@@ -93,7 +88,9 @@ func refresh_monster_list() -> void:
 			unit_button = _make_texture_button(PURPLE_NORMAL, PURPLE_HOVER, PURPLE_PRESSED, PURPLE_DISABLED, Vector2(0, 36))
 		unit_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		unit_button.disabled = not main.is_monster_available_this_wave(id)
-		var label_text = "%s  ·  CP %d  ·  Lv.%d" % [data.display_name, data.command_cost, main.monster_level(id)]
+		var label_text = "%s  ·  席位 %d  ·  Lv.%d" % [data.display_name, data.population_cost, main.monster_level(id)]
+		if main.current_language() == "en":
+			label_text = "%s  ·  Slots %d  ·  Lv.%d" % [data.display_name, data.population_cost, main.monster_level(id)]
 		if not unlocked:
 			label_text = _t("未解锁：%s  ·  %d 金币", "LOCKED: %s  ·  %d Gold") % [data.display_name, data.unlock_cost]
 		elif not main.is_monster_available_this_wave(id):
@@ -119,8 +116,8 @@ func show_event(message, urgent = false) -> void:
 func show_prepare(_hero_stats) -> void:
 	if main != null and main.should_show_deploy_prompt():
 		overlay.visible = true
-		overlay_title.text = _t("第一波训练：守住指挥台", "Tutorial: Hold the Command Post")
-		overlay_body.text = _t("① 已选小哥布林战士。\n② 点击绿色区域放下它。\n③ 点击【去部署】关闭教学，再按【开始战斗】。\n\n部署按钮只会在第一次出现。", "1) A Goblin Warrior is selected.\n2) Click the green zone to deploy it.\n3) Press Deploy to close this guide, then press Start Battle.\n\nThis guide appears only once.")
+		overlay_title.text = _t("第一波训练：写入怪物", "Tutorial: Write in Monsters")
+		overlay_body.text = _t("① 已选小哥布林战士。\n② 点击绿色区域把它写入战场。\n③ 点击【去部署】关闭教学，再按【开始战斗】。\n\n部署按钮只会在第一次出现。", "1) A Goblin Warrior is selected.\n2) Click the green zone to write it into the arena.\n3) Press Deploy to close this guide, then press Start Battle.\n\nThis guide appears only once.")
 		var choices = []
 		choices.append({"text": _t("去部署", "DEPLOY"), "callable": Callable(self, "dismiss_deploy_tutorial")})
 		_set_overlay_buttons(choices)
@@ -132,13 +129,30 @@ func dismiss_deploy_tutorial() -> void:
 		main.mark_deploy_tutorial_seen()
 	overlay.visible = false
 
-func show_reward(rewards, boons) -> void:
+func show_power_choice(rewards, seal_name, boons) -> void:
 	overlay.visible = true
-	overlay_title.text = _t("勇者被击倒", "Hero Defeated")
-	overlay_body.text = _t("剩余命数：%d / %d\n获得金币 %d，技能点 %d。\n选择一个临时强化。", "Lives remaining: %d / %d\nReward: %d Gold, %d Skill.\nChoose a temporary boon.") % [main.hero_lives_remaining, main.hero_lives_total, int(rewards.get("gold", 0)), int(rewards.get("skill_points", 0))]
+	overlay_title.text = _t("勇者被击倒：封印反转", "Hero Defeated: Seal Reversed")
+	overlay_body.text = _t("勇者失去一条命，并解封【%s】\n\n夺回资源：金币 %d，技能点 %d。\n选择一件强力道具后，进入下一间房。\n\n人口上限本版固定，不会因击杀而增加。", "The hero loses a life and unlocks [%s].\n\nRecovered: %d Gold, %d Skill.\nChoose one powerful item, then enter the next room.\n\nPopulation is fixed in this version.") % [str(seal_name), int(rewards.get("gold", 0)), int(rewards.get("skill_points", 0))]
 	var choices = []
 	for boon in boons:
 		choices.append({"text": "%s\n%s" % [boon["name"], boon["description"]], "callable": Callable(main, "choose_temp_boon").bind(str(boon["id"]))})
+	_set_overlay_buttons(choices)
+
+func show_normal_room_choice(relic, room_name, boons) -> void:
+	overlay.visible = true
+	overlay_title.text = _t("勇者清荡房间", "Hero Cleared the Room")
+	overlay_body.text = _t("勇者在【%s】撑到倒计时结束，带走遗物【%s】并获得成长。\n\n你仍可选择一件普通道具，为下一间房改写剧本。", "The hero survived [%s], carried away [%s], and grew stronger.\n\nYou still choose one normal item to rewrite the next room.") % [str(room_name), str(relic)]
+	var choices = []
+	for boon in boons:
+		choices.append({"text": "%s\n%s" % [boon["name"], boon["description"]], "callable": Callable(main, "choose_temp_boon").bind(str(boon["id"]))})
+	_set_overlay_buttons(choices)
+
+func show_hero_escape(relic, room_name, callback) -> void:
+	overlay.visible = true
+	overlay_title.text = _t("勇者写完了这一章", "The Hero Wrote This Chapter")
+	overlay_body.text = _t("勇者在【%s】撑到倒计时结束。\n他带走了遗物【%s】，并将在下一间房成长。\n\n下一间房会改变规则。", "The hero survived the timer in [%s].\nHe carries away [%s] and grows before the next room.\n\nThe next room rewrites the rules.") % [str(room_name), str(relic)]
+	var choices = []
+	choices.append({"text": _t("进入下一间", "NEXT ROOM"), "callable": callback})
 	_set_overlay_buttons(choices)
 
 func show_game_over(reason, waves_defeated) -> void:
@@ -180,11 +194,11 @@ func hide_overlay() -> void:
 		overlay.visible = false
 
 func _build_top_left() -> void:
-	var panel = _make_panel(Vector2(14, 12), Vector2(372, 204), 0.94)
+	var panel = _make_panel(Vector2(14, 12), Vector2(372, 126), 0.94)
 	var margin = _margin(10)
 	panel.add_child(margin)
 	var box = VBoxContainer.new()
-	box.add_theme_constant_override("separation", 3)
+	box.add_theme_constant_override("separation", 4)
 	margin.add_child(box)
 	var header = Label.new()
 	header.text = _t("勇者情报", "HERO INTEL")
@@ -209,12 +223,9 @@ func _build_top_left() -> void:
 	seal_label.add_theme_color_override("font_color", Color("#c8b4ff"))
 	seal_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	box.add_child(seal_label)
-	_add_bar(box, "hero_hp", Color("#df5160"))
-	_add_bar(box, "hero_armor", Color("#70adff"))
-	_add_bar(box, "commander", Color("#56c573"))
 
 func _build_top_center() -> void:
-	var panel = _make_panel(Vector2(396, 12), Vector2(448, 138), 0.94)
+	var panel = _make_panel(Vector2(396, 12), Vector2(448, 118), 0.94)
 	var margin = _margin(10)
 	panel.add_child(margin)
 	var box = VBoxContainer.new()
@@ -228,8 +239,8 @@ func _build_top_center() -> void:
 	resource_label.add_theme_font_size_override("font_size", 13)
 	resource_label.add_theme_color_override("font_color", Color("#e0eaff"))
 	box.add_child(resource_label)
-	_add_bar(box, "rage", Color("#f59a35"))
-	_add_bar(box, "cp", Color("#e0bb4e"))
+	_add_bar(box, "timer", Color("#77b8ff"))
+	_add_bar(box, "population", Color("#d9c469"))
 
 func _build_unit_panel() -> void:
 	var panel = _make_panel(Vector2(946, 12), Vector2(320, 696), 0.97)
@@ -456,16 +467,19 @@ func _update_seal_label() -> void:
 	seal_label.text = _t("封印：", "SEALS: ") + joined
 
 func _update_command_panel() -> void:
-	if main == null or main.commander == null:
+	if main == null:
 		return
-	commander_label.text = _t("哥布林指挥台  ·  %.0f / %.0f", "Goblin Command Post  ·  %.0f / %.0f") % [main.commander.hp, main.commander.max_hp]
+	if main.is_final_room():
+		commander_label.text = _t("守卫塔 · 全场鼓舞", "GUARDIAN TOWER · GLOBAL INSPIRE")
+	else:
+		commander_label.text = _t("剧本控制台 · 即时召唤", "SCRIPT CONSOLE · INSTANT SUMMON")
 	if main.phase == "prepare":
 		var id = main.selected_monster_id
 		var unit_name = "-"
 		if main.monster_catalog.has(id):
 			unit_name = main.monster_catalog[id].display_name
 		if event_label.text == "" or event_label.text.begins_with("已选") or event_label.text.begins_with("Selected"):
-			event_label.text = _t("已选：%s", "Selected: %s") % unit_name
+			event_label.text = _t("已选：%s · 死亡返还席位", "Selected: %s · Seat returns on death") % unit_name
 
 func _update_selected_panel() -> void:
 	if main == null or selected_label == null:
@@ -479,7 +493,7 @@ func _update_selected_panel() -> void:
 	var data = main.monster_catalog[id]
 	var unlocked = main.is_monster_unlocked(id)
 	var level = main.monster_level(id)
-	selected_label.text = "%s\n%s\n%s\n%s" % [data.display_name, _t("生命 %.0f  攻击 %.1f  攻速 %.2f", "HP %.0f  ATK %.1f  SPD %.2f") % [data.hp_with_level(), data.attack_with_level(), data.attack_speed], _t("射程 %.0f", "Range %.0f") % data.attack_range, _ability_text(data.ability)]
+	selected_label.text = "%s\n%s\n%s\n%s\n%s" % [data.display_name, _t("生命 %.0f  攻击 %.1f  攻速 %.2f", "HP %.0f  ATK %.1f  SPD %.2f") % [data.hp_with_level(), data.attack_with_level(), data.attack_speed], _t("射程 %.0f · 席位 %d", "Range %.0f · Slots %d") % [data.attack_range, data.population_cost], _ability_text(data.ability), _t("死亡后立即返还席位。", "Seat returns immediately on death.")]
 	var level_cap = main.hero_level()
 	unlock_button.disabled = unlocked or int(main.save_data["gold"]) < data.unlock_cost
 	upgrade_button.disabled = not unlocked or level >= level_cap or int(main.save_data["skill_points"]) < main.balance.upgrade_cost(level)

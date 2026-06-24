@@ -30,6 +30,7 @@ var hp = 180.0
 var idle_cycle_time = 0.0
 var cast_pose_time = 0.0
 var platform_hit_time = 0.0
+var guardian_mode = false
 
 func setup(world_position: Vector2, max_health: float, owner: Node) -> void:
 	global_position = world_position
@@ -51,11 +52,21 @@ func reset_health() -> void:
 	platform_hit_time = 0.0
 	queue_redraw()
 
+func set_guardian_mode(enabled: bool) -> void:
+	guardian_mode = enabled
+	visible = enabled
+	queue_redraw()
+
+func inspiration_radius() -> float:
+	return 270.0
+
 func trigger_summon_cast() -> void:
 	cast_pose_time = CHIEF_CAST_DURATION
 	queue_redraw()
 
 func take_damage(amount: float, source = null) -> void:
+	if guardian_mode:
+		return
 	hp = max(0.0, hp - amount)
 	platform_hit_time = PLATFORM_HIT_DURATION
 	if main != null:
@@ -97,9 +108,15 @@ func _draw() -> void:
 		draw_line(Vector2(-1, -16), Vector2(18, -16), Color("#214d2b"), 2.0)
 		draw_circle(Vector2(29, -14), 7.0, Color("#f1d06b"))
 
-	draw_string(ThemeDB.fallback_font, Vector2(-42, -84), "你的指挥台", HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color("#caffb7"))
-	draw_rect(Rect2(Vector2(-64, -101), Vector2(128, 8)), Color("#17311e"), true)
-	draw_rect(Rect2(Vector2(-64, -101), Vector2(128 * hp_ratio(), 8)), Color("#58dd68"), true)
+	if guardian_mode:
+		var aura_radius = inspiration_radius()
+		draw_circle(Vector2(0, 16), aura_radius, Color(0.38, 0.94, 0.56, 0.035))
+		draw_arc(Vector2(0, 16), aura_radius, 0.0, TAU, 48, Color(0.46, 1.0, 0.62, 0.42), 1.6)
+		draw_string(ThemeDB.fallback_font, Vector2(-48, -84), "守卫塔 · 全场鼓舞", HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color("#caffb7"))
+	else:
+		draw_string(ThemeDB.fallback_font, Vector2(-42, -84), "你的指挥台", HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color("#caffb7"))
+		draw_rect(Rect2(Vector2(-64, -101), Vector2(128, 8)), Color("#17311e"), true)
+		draw_rect(Rect2(Vector2(-64, -101), Vector2(128 * hp_ratio(), 8)), Color("#58dd68"), true)
 
 func _chief_texture() -> Texture2D:
 	if cast_pose_time > 0.0:

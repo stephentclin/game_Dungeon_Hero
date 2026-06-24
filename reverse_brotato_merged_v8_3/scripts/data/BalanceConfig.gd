@@ -24,6 +24,13 @@ func create_monster_catalog() -> Dictionary:
 	catalog["bomber"] = _monster("bomber", "炸弹小鬼", 80, 24, 25, 20.0, 8.0, 34, 1.0, 110, ["burst"], "suicide", Color(0.96, 0.54, 0.20))
 	catalog["shaman"] = _monster("shaman", "巫毒萨满", 140, 26, 34, 3.5, 0.0, 188, 0.85, 62, ["ranged", "support"], "ritual_heal", Color(0.73, 0.42, 0.96))
 	catalog["ogre"] = _monster("ogre", "食人魔", 260, 42, 150, 13.0, 12.0, 58, 0.55, 48, ["tank", "armor_breaker"], "armor_breaker", Color(0.84, 0.70, 0.38))
+	# Population is the new real-time deployment limit. Command cost remains only for old-save compatibility.
+	catalog["warrior"].population_cost = 1
+	catalog["archer"].population_cost = 2
+	catalog["slime"].population_cost = 2
+	catalog["bomber"].population_cost = 2
+	catalog["shaman"].population_cost = 3
+	catalog["ogre"].population_cost = 5
 	# Physical sizes and crowd pressure. Slimes fully resist knockback; ogres are heavy,
 	# but can still be moved a little by a sufficiently strong hit.
 	catalog["warrior"].collision_radius = 15.0
@@ -55,12 +62,19 @@ func create_red_button_effects() -> Array:
 
 func create_temp_boons() -> Array[Dictionary]:
 	var boons: Array[Dictionary] = []
-	boons.append({"id": "frenzy", "name": "全体怪物攻速 +15%", "description": "本局所有怪物攻击速度提高。"})
-	boons.append({"id": "melee_hp", "name": "近战怪物生命 +20%", "description": "战士、史莱姆和食人魔更能拖住勇者。"})
-	boons.append({"id": "ranged_crit", "name": "远程暴击", "description": "弓手和萨满有 18% 概率造成暴击数字。"})
-	boons.append({"id": "first_free", "name": "首只免费", "description": "每个兵种本局第一次部署免费。"})
-	boons.append({"id": "better_berserk", "name": "破甲狂暴增强", "description": "护甲粉碎后怪物额外获得速度和攻速。"})
-	boons.append({"id": "poison_calm", "name": "毒性压制", "description": "勇者中毒时怒气额外下降。"})
+	boons.append({"id": "frenzy", "name": "快节奏剧本", "description": "本局所有怪物攻击速度 +15%。"})
+	boons.append({"id": "melee_hp", "name": "前排增援", "description": "近战与坦克怪物生命 +20%。"})
+	boons.append({"id": "ranged_crit", "name": "精准伏笔", "description": "弓手与萨满获得 18% 暴击概率。"})
+	boons.append({"id": "better_berserk", "name": "破甲狂潮", "description": "勇者护甲粉碎后，怪物狂暴效果更强。"})
+	boons.append({"id": "poison_amp", "name": "毒性加笔", "description": "中毒伤害提高 50%。"})
+	boons.append({"id": "swift_cast", "name": "快速改写", "description": "所有怪物移动速度 +12%。"})
+	return boons
+
+func create_power_boons() -> Array[Dictionary]:
+	var boons: Array[Dictionary] = []
+	boons.append({"id": "power_attack", "name": "强力道具：剧本利刃", "description": "本局所有怪物攻击力 +30%。"})
+	boons.append({"id": "power_swarm", "name": "强力道具：无尽群演", "description": "本局所有怪物攻击速度 +30%。"})
+	boons.append({"id": "power_fortify", "name": "强力道具：地下城甲胄", "description": "本局所有怪物最大生命 +35%。"})
 	return boons
 
 func hero_base_stats(wave: int) -> Dictionary:

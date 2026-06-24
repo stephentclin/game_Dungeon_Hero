@@ -5,6 +5,7 @@ class_name MonsterData
 @export var display_name: String = ""
 @export var unlock_cost: int = 0
 @export var command_cost: int = 10
+@export var population_cost: int = 1
 @export var max_hp: float = 20.0
 @export var attack: float = 4.0
 @export var armor_damage: float = 0.0
@@ -35,4 +36,4 @@ func attack_with_level() -> float:
 	return attack * (1.0 + float(level) * 0.08)
 
 func cost_label() -> String:
-	return "%s  CP:%d" % [display_name, command_cost]
+	return "%s  POP:%d" % [display_name, population_cost]
