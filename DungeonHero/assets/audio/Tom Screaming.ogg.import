@@ -1,0 +1,19 @@
+[remap]
+
+importer="oggvorbisstr"
+type="AudioStreamOggVorbis"
+uid="uid://cx5byoi7wwe34"
+path="res://.godot/imported/Tom Screaming.ogg-5fa91eaa1a6f4a1af2f0033867cdac8e.oggvorbisstr"
+
+[deps]
+
+source_file="res://assets/audio/Tom Screaming.ogg"
+dest_files=["res://.godot/imported/Tom Screaming.ogg-5fa91eaa1a6f4a1af2f0033867cdac8e.oggvorbisstr"]
+
+[params]
+
+loop=false
+loop_offset=0
+bpm=0
+beat_count=0
+bar_beats=4

@@ -1,0 +1,7 @@
+V12 static checks performed in the build workspace:
+- Replaced the invalid Godot class HScrollContainer with ScrollContainer.
+- Checked for duplicate function declarations.
+- Checked for unbalanced single-line string quotes after the v12 code additions.
+- Checked that no HScrollContainer references remain under scripts/.
+
+Godot was not available in this environment, so this is not an actual editor/headless parse run. Please open the project as a fresh import and test it locally.

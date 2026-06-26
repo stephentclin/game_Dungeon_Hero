@@ -1,0 +1,1 @@
+Place Hero_pass.mp4 here to play the full hero-clear cutscene after selecting a normal talent. If the file is absent or unsupported by the local Godot build, the game shows a safe built-in transition instead.

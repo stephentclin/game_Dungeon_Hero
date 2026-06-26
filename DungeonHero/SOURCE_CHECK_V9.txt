@@ -1,0 +1,7 @@
+Static review completed:
+- Checked for duplicate GDScript function names.
+- Checked for unmatched double quotes in all .gd files.
+- Checked newly referenced UI button texture paths.
+- Checked all new scripts are included in the package.
+
+This is not a replacement for opening the project in Godot and pressing F5.

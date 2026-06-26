@@ -1,0 +1,8 @@
+STATIC_CHECK_V10_OK
+Checks performed:
+- no unmatched quote lines in .gd files
+- no duplicate GDScript function definitions
+- generic delimiter balance for parentheses/brackets/braces
+- confirmed new room-choice, fixed-population, survival-movement, guardian-tower and power-item references
+
+Godot runtime was not available in this environment, so this is not an in-editor F5 run.
